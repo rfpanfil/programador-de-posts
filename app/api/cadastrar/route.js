@@ -15,25 +15,35 @@ export async function POST(request) {
     }
     
     // 1. Upload para o Vercel Blob
-    const blob = await put(file.name, file, { access: 'public' });
+    const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
     const urlDaMidia = blob.url;
 
-    // 2. Autenticação no Google Sheets
+    // 2. Tratamento da Chave Privada (Prevenção de erro DECODER)
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+    privateKey = privateKey.replace(/\\n/g, '\n').replace(/"/g, '');
+
     const serviceAccountAuth = new JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      key: privateKey,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    // ID da Planilha "Programação Posts"
+    // 3. Conversão da Data (De AAAA-MM-DD para DD/MM/AAAA)
+    const rawDate = formData.get('dataPostagem'); // ex: "2026-05-15"
+    let dataFormatada = rawDate;
+    if (rawDate && rawDate.includes('-')) {
+      const [year, month, day] = rawDate.split('-');
+      dataFormatada = `${day}/${month}/${year}`;
+    }
+
     const doc = new GoogleSpreadsheet('1I19QzsvJHBL6WGZDf7JPj1Bv8RUAglMBPXR0rhWmcdY', serviceAccountAuth);
     await doc.loadInfo(); 
     
     const sheet = doc.sheetsByTitle['Lista_de_programacao'];
 
-    // 3. Inserir linha na planilha
+    // 4. Inserir linha na planilha
     await sheet.addRow({
-      'Data_Postagem': formData.get('dataPostagem'),
+      'Data_Postagem': dataFormatada,
       'Tipo': formData.get('tipo'),
       'Hora_Postagem': formData.get('horaPostagem'),
       'Texto': formData.get('texto'),
