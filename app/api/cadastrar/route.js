@@ -9,16 +9,33 @@ export async function POST(request) {
   try {
     const formData = await request.formData();
     
-    const file = formData.get('arquivo');
-    if (!file || file.size === 0) {
-      return NextResponse.json({ error: 'Nenhum arquivo enviado.' }, { status: 400 });
-    }
-    
-    // 1. Upload para o Vercel Blob
-    const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
-    const urlDaMidia = blob.url;
+    // Agora verificamos se existe a lista do carrossel OU o arquivo único original
+    const arquivosCarrossel = formData.getAll('arquivos_carrossel');
+    const arquivoUnico = formData.get('arquivo');
 
-    // 2. Tratamento da Chave Privada (Prevenção de erro DECODER)
+    let urlsGeradas = [];
+
+    // 1. Upload Múltiplo para o Vercel Blob
+    if (arquivosCarrossel && arquivosCarrossel.length > 0) {
+      // Loop para subir todas as imagens do carrossel
+      for (const file of arquivosCarrossel) {
+        if (file && file.size > 0) {
+          const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
+          urlsGeradas.push(blob.url);
+        }
+      }
+    } else if (arquivoUnico && arquivoUnico.size > 0) {
+      // Caso normal (apenas 1 arquivo)
+      const blob = await put(arquivoUnico.name, arquivoUnico, { access: 'public', addRandomSuffix: true });
+      urlsGeradas.push(blob.url);
+    } else {
+      return NextResponse.json({ error: 'Nenhum arquivo válido enviado.' }, { status: 400 });
+    }
+
+    // Junta todas as URLs separadas por vírgula (O Make adora esse formato!)
+    const urlDaMidiaFinal = urlsGeradas.join(',');
+
+    // 2. Tratamento da Chave Privada
     let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
     privateKey = privateKey.replace(/\\n/g, '\n').replace(/"/g, '');
 
@@ -28,8 +45,8 @@ export async function POST(request) {
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    // 3. Conversão da Data (De AAAA-MM-DD para DD/MM/AAAA)
-    const rawDate = formData.get('dataPostagem'); // ex: "2026-05-15"
+    // 3. Conversão da Data
+    const rawDate = formData.get('dataPostagem');
     let dataFormatada = rawDate;
     if (rawDate && rawDate.includes('-')) {
       const [year, month, day] = rawDate.split('-');
@@ -47,7 +64,7 @@ export async function POST(request) {
       'Tipo': formData.get('tipo'),
       'Hora_Postagem': formData.get('horaPostagem'),
       'Texto': formData.get('texto'),
-      'URL_Midia': urlDaMidia,
+      'URL_Midia': urlDaMidiaFinal, // Salva o link único ou os vários links com vírgula
       'Status': 'Pendente',
       'Recorrente': formData.get('recorrente'),
       'Regra_Recorrencia': formData.get('regraRecorrencia'),
